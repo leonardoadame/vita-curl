@@ -85,7 +85,7 @@ class RequestParser(object):
     self._valid_requests = []
 
   def ParseAdditionalData(self, data):
-    """Finds HTTP requests in |data|.
+      """Finds HTTP requests in |data|.
 
     Args:
       data: (String) Newly received input data from the socket.
@@ -100,31 +100,30 @@ class RequestParser(object):
       UnexpectedMethodError: On a non-GET method.
       Error: On a programming error.
     """
-    logfile = open('log/server.input', 'a')
-    logfile.write(data)
-    logfile.close()
-    self._buffer += data.replace('\r', '')
-    should_continue_parsing = True
-    while should_continue_parsing:
-      if self._state == self.LOOKING_FOR_GET:
-        should_continue_parsing = self._DoLookForGet()
-      elif self._state == self.READING_HEADERS:
-        should_continue_parsing = self._DoReadHeader()
-      else:
-        raise Error('Unexpected state: ' + self._state)
-    if len(self._buffer) > MAX_REQUEST_SIZE:
-      raise RequestTooLargeError(
-          'Request is at least %d bytes' % len(self._buffer))
-    valid_requests = self._valid_requests
-    self._valid_requests = []
-    return valid_requests
+      with open('log/server.input', 'a') as logfile:
+          logfile.write(data)
+      self._buffer += data.replace('\r', '')
+      should_continue_parsing = True
+      while should_continue_parsing:
+          if self._state == self.LOOKING_FOR_GET:
+              should_continue_parsing = self._DoLookForGet()
+          elif self._state == self.READING_HEADERS:
+            should_continue_parsing = self._DoReadHeader()
+          else:
+              raise Error(f'Unexpected state: {self._state}')
+      if len(self._buffer) > MAX_REQUEST_SIZE:
+        raise RequestTooLargeError(
+            'Request is at least %d bytes' % len(self._buffer))
+      valid_requests = self._valid_requests
+      self._valid_requests = []
+      return valid_requests
 
   @property
   def were_all_requests_http_1_1(self):
     return self._were_all_requests_http_1_1
 
   def _DoLookForGet(self):
-    """Tries to parse an HTTTP request line.
+      """Tries to parse an HTTTP request line.
 
     Returns:
       (Boolean) True if a request was found.
@@ -132,25 +131,25 @@ class RequestParser(object):
     Raises:
       UnexpectedMethodError: On a non-GET method.
     """
-    m = self.REQUEST_RE.match(self._buffer)
-    if not m:
-      return False
-    method, path, http_major, http_minor = m.groups()
+      m = self.REQUEST_RE.match(self._buffer)
+      if not m:
+        return False
+      method, path, http_major, http_minor = m.groups()
 
-    if method != 'GET':
-      raise UnexpectedMethodError('Unexpected method: ' + method)
-    if path in ['/', '/index.htm', '/index.html']:
-      raise ServeIndexError()
+      if method != 'GET':
+          raise UnexpectedMethodError(f'Unexpected method: {method}')
+      if path in ['/', '/index.htm', '/index.html']:
+        raise ServeIndexError()
 
-    if http_major != '1' or http_minor != '1':
-      self._were_all_requests_http_1_1 = False
+      if http_major != '1' or http_minor != '1':
+        self._were_all_requests_http_1_1 = False
 
 #    print method, path
 
-    self._pending_request = path
-    self._buffer = self._buffer[m.end():]
-    self._state = self.READING_HEADERS
-    return True
+      self._pending_request = path
+      self._buffer = self._buffer[m.end():]
+      self._state = self.READING_HEADERS
+      return True
 
   def _DoReadHeader(self):
     """Tries to parse a HTTP header.
@@ -204,103 +203,110 @@ class ResponseBuilder(object):
     return [hex(chunksize)[2:] + "\r\n" + data[i:i+chunksize] + "\r\n" for i in range(0, len(data), chunksize)]
 
   def BuildResponses(self):
-    """Converts the queue of requests into responses.
+      """Converts the queue of requests into responses.
 
     Returns:
       (String) Buffer containing all of the responses.
     """
-    result = ""
-    self._max_pipeline_depth = max(self._max_pipeline_depth,
-                                   len(self._requested_paths))
-    for path, headers in self._requested_paths:
-      if path == '/verifiedserver':
-        body = "WE ROOLZ: {}\r\n".format(os.getpid());
-        result += self._BuildResponse(
-            '200 OK', ['Server: Apache',
-                       'Content-Length: {}'.format(len(body)),
-                       'Cache-Control: no-store'], body)
+      result = ""
+      self._max_pipeline_depth = max(self._max_pipeline_depth,
+                                     len(self._requested_paths))
+      for path, headers in self._requested_paths:
+          if path == '/100k.txt':
+              body = '0123456789abcdef' * 6400
+              result += self._BuildResponse(
+                  '200 OK',
+                  ['Server: Apache',
+                   'Content-Length: 102400',
+                   'Cache-Control: max-age=60'],
+                  body)
 
-      elif path == '/alphabet.txt':
-        body = 'abcdefghijklmnopqrstuvwxyz'
-        result += self._BuildResponse(
-            '200 OK', ['Server: Apache',
-                       'Content-Length: 26',
-                       'Cache-Control: no-store'], body)
+          elif path == '/100k_chunked.txt':
+              body = self.Chunkify('0123456789abcdef' * 6400, 20480)
+              body.append('0\r\n\r\n')
+              body = ''.join(body)
 
-      elif path == '/reverse.txt':
-        body = 'zyxwvutsrqponmlkjihgfedcba'
-        result += self._BuildResponse(
-            '200 OK', ['Content-Length: 26', 'Cache-Control: no-store'], body)
+              result += self._BuildResponse(
+                  '200 OK', ['Transfer-Encoding: chunked', 'Cache-Control: no-store'], body)
 
-      elif path == '/chunked.txt':
-        body = ('7\r\nchunked\r\n'
-                '8\r\nencoding\r\n'
-                '2\r\nis\r\n'
-                '3\r\nfun\r\n'
-                '0\r\n\r\n')
-        result += self._BuildResponse(
-            '200 OK', ['Transfer-Encoding: chunked', 'Cache-Control: no-store'],
-            body)
+          elif path == '/10k.txt':
+              body = '0123456789abcdef' * 640
+              result += self._BuildResponse(
+                  '200 OK', ['Server: Apache',
+                             'Content-Length: 10240',
+                             'Cache-Control: max-age=60'], body)
 
-      elif path == '/cached.txt':
-        body = 'azbycxdwevfugthsirjqkplomn'
-        result += self._BuildResponse(
-            '200 OK', ['Content-Length: 26', 'Cache-Control: max-age=60'], body)
+          elif path == '/1k.txt':
+              body = '0123456789abcdef' * 64
+              result += self._BuildResponse(
+                  '200 OK', ['Server: Apache',
+                             'Content-Length: 1024',
+                             'Cache-Control: max-age=60'], body)
 
-      elif path == '/connection_close.txt':
-        body = 'azbycxdwevfugthsirjqkplomn'
-        result += self._BuildResponse(
-            '200 OK', ['Content-Length: 26', 'Cache-Control: max-age=60', 'Connection: close'], body)
-        self._processed_end = True
+          elif path == '/alphabet.txt':
+              body = 'abcdefghijklmnopqrstuvwxyz'
+              result += self._BuildResponse(
+                  '200 OK', ['Server: Apache',
+                             'Content-Length: 26',
+                             'Cache-Control: no-store'], body)
 
-      elif path == '/1k.txt':
-        body = '0123456789abcdef' * 64
-        result += self._BuildResponse(
-            '200 OK', ['Server: Apache',
-                       'Content-Length: 1024',
-                       'Cache-Control: max-age=60'], body)
+          elif path == '/cached.txt':
+              body = 'azbycxdwevfugthsirjqkplomn'
+              result += self._BuildResponse(
+                  '200 OK', ['Content-Length: 26', 'Cache-Control: max-age=60'], body)
 
-      elif path == '/10k.txt':
-        body = '0123456789abcdef' * 640
-        result += self._BuildResponse(
-            '200 OK', ['Server: Apache',
-                       'Content-Length: 10240',
-                       'Cache-Control: max-age=60'], body)
+          elif path == '/chunked.txt':
+              body = ('7\r\nchunked\r\n'
+                      '8\r\nencoding\r\n'
+                      '2\r\nis\r\n'
+                      '3\r\nfun\r\n'
+                      '0\r\n\r\n')
+              result += self._BuildResponse(
+                  '200 OK', ['Transfer-Encoding: chunked', 'Cache-Control: no-store'],
+                  body)
 
-      elif path == '/100k.txt':
-        body = '0123456789abcdef' * 6400
-        result += self._BuildResponse(
-            '200 OK',
-            ['Server: Apache',
-             'Content-Length: 102400',
-             'Cache-Control: max-age=60'],
-            body)
+          elif path == '/connection_close.txt':
+              body = 'azbycxdwevfugthsirjqkplomn'
+              result += self._BuildResponse(
+                  '200 OK', ['Content-Length: 26', 'Cache-Control: max-age=60', 'Connection: close'], body)
+              self._processed_end = True
 
-      elif path == '/100k_chunked.txt':
-        body = self.Chunkify('0123456789abcdef' * 6400, 20480)
-        body.append('0\r\n\r\n')
-        body = ''.join(body)
+          elif path == '/reverse.txt':
+              body = 'zyxwvutsrqponmlkjihgfedcba'
+              result += self._BuildResponse(
+                  '200 OK', ['Content-Length: 26', 'Cache-Control: no-store'], body)
 
-        result += self._BuildResponse(
-            '200 OK', ['Transfer-Encoding: chunked', 'Cache-Control: no-store'], body)
+          elif path == '/stats.txt':
+              results = {
+                  'max_pipeline_depth': self._max_pipeline_depth,
+                  'were_all_requests_http_1_1': int(self._were_all_requests_http_1_1),
+              }
+              body = ','.join([f'{k}:{v}' for k, v in results.items()])
+              result += self._BuildResponse(
+                  '200 OK',
+                  [f'Content-Length: {len(body)}', 'Cache-Control: no-store'],
+                  body,
+              )
+              self._processed_end = True
 
-      elif path == '/stats.txt':
-        results = {
-            'max_pipeline_depth': self._max_pipeline_depth,
-            'were_all_requests_http_1_1': int(self._were_all_requests_http_1_1),
-        }
-        body = ','.join(['%s:%s' % (k, v) for k, v in results.items()])
-        result += self._BuildResponse(
-            '200 OK',
-            ['Content-Length: %s' % len(body), 'Cache-Control: no-store'], body)
-        self._processed_end = True
+          elif path == '/verifiedserver':
+              body = f"WE ROOLZ: {os.getpid()}\r\n";
+              result += self._BuildResponse(
+                  '200 OK',
+                  [
+                      'Server: Apache',
+                      f'Content-Length: {len(body)}',
+                      'Cache-Control: no-store',
+                  ],
+                  body,
+              )
 
-      else:
-        result += self._BuildResponse('404 Not Found', ['Content-Length: 7'], 'Go away')
-      if self._processed_end:
-          break
-    self._requested_paths = []
-    return result
+          else:
+              result += self._BuildResponse('404 Not Found', ['Content-Length: 7'], 'Go away')
+          if self._processed_end:
+              break
+      self._requested_paths = []
+      return result
 
   def WriteError(self, status, error):
     """Returns an HTTP response for the specified error.
@@ -347,66 +353,66 @@ class PipelineRequestHandler(socketserver.BaseRequestHandler):
     return self._last_queued_time + SEND_BUFFER_TIME - time.time()
 
   def handle(self):
-    self._request_parser = RequestParser()
-    self._response_builder = ResponseBuilder()
-    self._last_queued_time = 0
-    self._num_queued = 0
-    self._num_written = 0
-    self._send_buffer = ""
-    self._start_time = time.time()
-    try:
-      while not self._response_builder.processed_end or self._send_buffer:
+      self._request_parser = RequestParser()
+      self._response_builder = ResponseBuilder()
+      self._last_queued_time = 0
+      self._num_queued = 0
+      self._num_written = 0
+      self._send_buffer = ""
+      self._start_time = time.time()
+      try:
+          while not self._response_builder.processed_end or self._send_buffer:
 
-        time_left = self._GetTimeUntilTimeout()
-        time_until_next_send = self._GetTimeUntilNextSend()
-        max_poll_time = min(time_left, time_until_next_send) + MIN_POLL_TIME
+              time_left = self._GetTimeUntilTimeout()
+              time_until_next_send = self._GetTimeUntilNextSend()
+              max_poll_time = min(time_left, time_until_next_send) + MIN_POLL_TIME
 
-        rlist, wlist, xlist = [], [], []
-        fileno = self.request.fileno()
-        if max_poll_time > 0:
-          rlist.append(fileno)
-          if self._send_buffer:
-            wlist.append(fileno)
-          rlist, wlist, xlist = select.select(rlist, wlist, xlist, max_poll_time)
+              rlist, wlist, xlist = [], [], []
+              fileno = self.request.fileno()
+              if max_poll_time > 0:
+                rlist.append(fileno)
+                if self._send_buffer:
+                  wlist.append(fileno)
+                rlist, wlist, xlist = select.select(rlist, wlist, xlist, max_poll_time)
 
-        if self._GetTimeUntilTimeout() <= 0:
-          return
+              if self._GetTimeUntilTimeout() <= 0:
+                return
 
-        if self._GetTimeUntilNextSend() <= 0:
-          self._send_buffer += self._response_builder.BuildResponses()
-          self._num_written = self._num_queued
-          self._last_queued_time = 0
+              if self._GetTimeUntilNextSend() <= 0:
+                self._send_buffer += self._response_builder.BuildResponses()
+                self._num_written = self._num_queued
+                self._last_queued_time = 0
 
-        if fileno in rlist:
-          self.request.setblocking(False)
-          new_data = self.request.recv(MAX_REQUEST_SIZE)
-          self.request.setblocking(True)
-          if not new_data:
-            return
-          new_requests = self._request_parser.ParseAdditionalData(new_data)
-          self._response_builder.QueueRequests(
-              new_requests, self._request_parser.were_all_requests_http_1_1)
-          self._num_queued += len(new_requests)
-          self._last_queued_time = time.time()
-        elif fileno in wlist:
-          num_bytes_sent = self.request.send(self._send_buffer[0:4096])
-          self._send_buffer = self._send_buffer[num_bytes_sent:]
-          time.sleep(0.05)
+              if fileno in rlist:
+                  self.request.setblocking(False)
+                  new_data = self.request.recv(MAX_REQUEST_SIZE)
+                  self.request.setblocking(True)
+                  if not new_data:
+                    return
+                  new_requests = self._request_parser.ParseAdditionalData(new_data)
+                  self._response_builder.QueueRequests(
+                      new_requests, self._request_parser.were_all_requests_http_1_1)
+                  self._num_queued += len(new_requests)
+                  self._last_queued_time = time.time()
+              elif fileno in wlist:
+                  num_bytes_sent = self.request.send(self._send_buffer[:4096])
+                  self._send_buffer = self._send_buffer[num_bytes_sent:]
+                  time.sleep(0.05)
 
-    except RequestTooLargeError as e:
-      self.request.send(self._response_builder.WriteError(
-          '413 Request Entity Too Large', e))
-      raise
-    except UnexpectedMethodError as e:
-      self.request.send(self._response_builder.WriteError(
-          '405 Method Not Allowed', e))
-      raise
-    except ServeIndexError:
-      self.request.send(self._response_builder.WriteError(
-          '200 OK', INFO_MESSAGE))
-    except Exception as e:
-      print(e)
-    self.request.close()
+      except RequestTooLargeError as e:
+        self.request.send(self._response_builder.WriteError(
+            '413 Request Entity Too Large', e))
+        raise
+      except UnexpectedMethodError as e:
+        self.request.send(self._response_builder.WriteError(
+            '405 Method Not Allowed', e))
+        raise
+      except ServeIndexError:
+        self.request.send(self._response_builder.WriteError(
+            '200 OK', INFO_MESSAGE))
+      except Exception as e:
+        print(e)
+      self.request.close()
 
 
 class PipelineServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -432,10 +438,8 @@ args = parser.parse_args()
 
 if args.pidfile:
     pid = os.getpid()
-    f = open(args.pidfile, 'w')
-    f.write('{}'.format(pid))
-    f.close()
-
+    with open(args.pidfile, 'w') as f:
+        f.write(f'{pid}')
 server = PipelineServer(('0.0.0.0', args.port), PipelineRequestHandler)
 server.allow_reuse_address = True
 server.serve_forever()
